@@ -7,51 +7,155 @@ import re
 import os
 import csv
 from utils import *
+from collections import defaultdict
 
+# def transform_structure(data):
+#     output = []
+#     chapter_index = 1
+
+#     for chapter_title, sections in data.items():
+#         # Extract readable title
+#         match = re.match(r"Chapter\s+([\d.]+)\s+(.*)", chapter_title)
+#         readable_title = match.group(2).title() if match else chapter_title
+
+#         article = {
+#             "title": chapter_title,
+#             "dir": f"chapter_{chapter_index}",
+#             "file": "",
+#             "sections": []
+#         }
+
+#         for i, section in enumerate(sections, 1):
+#             section_entry = {
+#                 "title": f"§ {section['heading']}",
+#                 "file": f"{chapter_index}.{i}",
+#                 "article": section.get("article", ""),  # Add article information
+#                 "section": []
+#             }
+
+#             # Check for heading4 content
+#             if "h4_headings" in section and section["h4_headings"]:
+#                 for j, h4_heading in enumerate(section["h4_headings"], 1):
+#                     section_entry["section"].append({
+#                         "subtitle": h4_heading
+#                         # "html": section.get("html", ""),
+#                         # "text": section.get("text", "")
+#                     })
+#             # else:
+#             #     section_entry["section"].append({
+#             #     #     "html": section.get("html", ""),
+#             #     #     "text": section.get("text", "")
+#             #     # })
+
+#             article["sections"].append(section_entry)
+
+#         output.append(article)
+#         chapter_index += 1
+
+#     return output
+
+
+
+################################################################################
 def transform_structure(data):
     output = []
-    chapter_index = 1
 
-    for chapter_title, sections in data.items():
-        # Extract readable title
-        match = re.match(r"Chapter\s+([\d.]+)\s+(.*)", chapter_title)
-        readable_title = match.group(2).title() if match else chapter_title
+    for chapter_index, (chapter_title, sections) in enumerate(data.items(), 1):
+        # Extract readable chapter title
+        match = re.match(r"Chapter\s+([\d.]+)\s*-\s*(.*)", chapter_title)
+        readable_title = match.group(2).strip().title() if match else chapter_title.strip()
 
-        article = {
-            "title": chapter_title,
+        chapter = {
+            "title": readable_title,
             "dir": f"chapter_{chapter_index}",
             "file": "",
             "sections": []
         }
 
-        for i, section in enumerate(sections, 1):
-            section_entry = {
-                "title": f"§ {section['heading']}",
-                "file": f"{chapter_index}.{i}",
-                "article": section.get("article", ""),  # Add article information
-                "section": []
-            }
+        article_map = {}
 
-            # Check for heading4 content
-            if "h4_headings" in section and section["h4_headings"]:
-                for j, h4_heading in enumerate(section["h4_headings"], 1):
-                    section_entry["section"].append({
-                        "subtitle": h4_heading,
-                        "html": section.get("html", ""),
-                        "text": section.get("text", "")
+        for section_index, section in enumerate(sections, 1):
+            heading2_raw = section.get("article", "")
+            # Safely convert to string if it's a set or list
+            if isinstance(heading2_raw, (set, list)):
+                heading2 = " ".join(map(str, heading2_raw)).strip()
+            elif isinstance(heading2_raw, str):
+                heading2 = heading2_raw.strip()
+
+
+            h3s = section.get("heading", "")
+            i = 1
+
+            if heading2:
+                # Initialize article if not already created
+                if heading2 not in article_map:
+                    article_map[heading2] = {
+                        "title": heading2,
+                        "file": "",
+                        "sections": []
+                    }
+
+                if isinstance(h3s, list):
+                    for h3 in h3s:
+                        article_map[heading2]["sections"].append({
+                            "title": h3,
+                            "file": f"{chapter_index}.{section_index}.{i}",
+                            "sections": []
+                        })
+                        i += 1
+                elif isinstance(h3s, str) and h3s.strip():
+                    article_map[heading2]["sections"].append({
+                        "title": h3s.strip(),
+                        "file": f"{chapter_index}.{section_index}.{i}",
+                        "sections": []
                     })
-            else:
-                section_entry["section"].append({
-                    "html": section.get("html", ""),
-                    "text": section.get("text", "")
+                else:
+                    # If no heading3, just add the article title as a section once
+                    if not article_map[heading2]["sections"]:
+                        article_map[heading2]["sections"].append({
+                            "title": heading2,
+                            "file": f"{chapter_index}.{section_index}",
+                            "sections": []
+                        })
+
+            elif h3s:
+                chapter["sections"].append({
+                    "title": h3s,
+                    "file": f"{chapter_index}.{section_index}.{i}",
+                    "sections": []
                 })
 
-            article["sections"].append(section_entry)
+            else:
+                chapter["sections"].append({
+                    "title": f"Section {chapter_index}.{section_index}",
+                    "file": f"{chapter_index}.{section_index}",
+                    "sections": []
+                })
 
-        output.append(article)
-        chapter_index += 1
+        # Append all unique articles once
+        chapter["sections"].extend(article_map.values())
+
+        output.append(chapter)
 
     return output
+
+
+
+
+
+
+def convert_sets_to_lists(obj):
+    if isinstance(obj, dict):
+        return {k: convert_sets_to_lists(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_sets_to_lists(item) for item in obj]
+    elif isinstance(obj, set):
+        return list(obj)
+    else:
+        return obj
+
+
+
 
 def extract_chapter_name(title):
     return re.sub(r'^Chapter\s+\d+\.?\s*', '', title, flags=re.IGNORECASE).strip()
@@ -107,6 +211,8 @@ def chapters_wise_jsons(chapters, results):
     
     print("Section files created successfully.")
 
+
+
 def generate_csv(chapters, results, output_file="san_mateo_sections.csv"):
     rows = []
     max_chunk_length = 4000
@@ -115,7 +221,6 @@ def generate_csv(chapters, results, output_file="san_mateo_sections.csv"):
         chunk_overlap=0,
         separators=["\n\n", "\n", "(?<=\. )", " "]
     )
-
     for chapter_index, chapter in enumerate(chapters, 1):
         chapter_title_1 = chapter["title"]
         chapter_title = extract_chapter_name(chapter["title"])
@@ -131,8 +236,10 @@ def generate_csv(chapters, results, output_file="san_mateo_sections.csv"):
             continue
 
         chapter_data = results[matched_chapter_key]
+        j=1
 
         for section_index, section in enumerate(chapter["sections"], 1):
+            # j = 1
             heading_clean = section["title"].replace("§", "").strip()
             section_url = section.get("url", "")
 
@@ -141,25 +248,30 @@ def generate_csv(chapters, results, output_file="san_mateo_sections.csv"):
                 print(f"Warning: No match for section '{section['title']}' in CSV export")
                 continue
 
-            subsection_number = f"{chapter_index}.{section_index}"
+            
+            # if section["article"]=="":    
+                # subsection_number = f"{chapter_index}.{section_index}"
+            # else:
+            subsection_number = f"{chapter_index}.{section_index}.1"
+
             zoneomics_url = f"https://zoneomics.com/code/san_mateo/chapter_{chapter_index}#{subsection_number}"
 
             text_content = match["text"]
-            paragraphs = text_content.split("\n") if text_content else [""]
+            paragraphs = text_content.split("\n") if text_content else ""
 
             for para in paragraphs:
                 if not para.strip():
                     continue
 
-                # para = municode_textProcessing(para)
+                para = municode_textProcessing(paragraphs)
                 if len(para) > max_chunk_length:
                     split_texts = text_splitter.split_text(para)
                     for idx, split_text in enumerate(split_texts, 1):
                         row = {
                             "chapter_no": chapter_index,
-                            "chapter_title": chapter_title_1,
-                            "article_title": section.get("article", ""),  # New column for article
-                            "section_title": match["heading"],
+                            "heading_1": chapter_title_1,
+                            "heading_2": section.get("article", ""),  # New column for article
+                            "heading_3": match["heading"],
                             "subsection_number": f"sub-sec-{subsection_number}",
                             "source_url": match["url"],
                             "zoneomics_url": zoneomics_url,
@@ -169,25 +281,30 @@ def generate_csv(chapters, results, output_file="san_mateo_sections.csv"):
                 else:
                     row = {
                         "chapter_no": chapter_index,
-                        "chapter_title": chapter_title_1,
+                        "heading_1": chapter_title_1,
                         # "article_title": section.get("article", ""),  # New column for article
-                        "article_title": match["article"],
-                        "section_title": match["heading"],
+                        "heading_2": match["article"],
+                        "heading_3": match["heading"],
                         "subsection_number": f"sub-sec-{subsection_number}",
                         "source_url": match["url"],
                         "zoneomics_url": zoneomics_url,
                         "text": para.strip()
                     }
                     rows.append(row)
+                j+=1
 
     with open(output_file, mode="w", newline='', encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=[
-            "chapter_no", "chapter_title", "article_title", "section_title",
+            "chapter_no", "heading_1", "heading_2", "heading_3",
             "subsection_number", "source_url", "zoneomics_url", "text"
         ])
         writer.writeheader()
         writer.writerows(rows)
     print(f"CSV successfully written to {output_file}")
+
+
+
+
 
 def scrape_sections(driver, chapter_number, base_url):
     sections = []
@@ -207,7 +324,7 @@ def scrape_sections(driver, chapter_number, base_url):
 
         i = 0  # global h4 index
 
-        for h3 in h3_articles: 
+        for i,h3 in enumerate(h3_articles): 
             article_title = h3.text.strip()
 
             while i < len(h4_sections):
@@ -216,7 +333,7 @@ def scrape_sections(driver, chapter_number, base_url):
                 section_url = base_url + section_id
 
                 section = {
-                    "article": article_title,
+                    "article": {article_title},
                     "heading": h4.text.strip(),
                     "id": section_id,
                     "url": section_url,
@@ -295,7 +412,7 @@ def scrape_sections(driver, chapter_number, base_url):
 
 
 
-    if chapter_number in ['27.19', '27.28', '27.60', '27.62']:
+    if chapter_number in ['27.19' ,'27.28', '27.60', '27.62']:
         pass
         # article_path = f"//*[contains(@class, 'h__section') and contains(@id, '/us/ca/cities/san-mateo/code/{chapter_number}')]/preceding-sibling::h2[1]"
         # h3_articles = driver.find_elements(By.XPATH, article_path)
@@ -322,6 +439,15 @@ def scrape_sections(driver, chapter_number, base_url):
         #             "html": "",
         #             "text": ""
         #         }
+
+        #         # section = {
+        #         #     "title",
+        #         #     "file",
+        #         #     "sections": []
+        #         # }   
+
+        #         # create_html_json(url, )
+
 
         #         paragraphs_html = []
         #         paragraphs_text = []
@@ -386,60 +512,60 @@ def scrape_sections(driver, chapter_number, base_url):
 
     else:
         pass
-        
-        # h3_elements = driver.find_elements(By.XPATH, f"//*[contains(@class, 'h__section') and contains(@id, '/us/ca/cities/san-mateo/code/{chapter_number}')]")
-        # for i, h3 in enumerate(h3_elements, 1):
-        #     id = h3.get_attribute("id")
-        #     section_url = base_url + id
-        #     section_index = 1
-        #     # file_number = f"{title_count}.{i}"
+        # if chapter_number != "27.21":
+        #     h3_elements = driver.find_elements(By.XPATH, f"//*[contains(@class, 'h__section') and contains(@id, '/us/ca/cities/san-mateo/code/{chapter_number}')]")
+        #     for i, h3 in enumerate(h3_elements, 1):
+        #         id = h3.get_attribute("id")
+        #         section_url = base_url + id
+        #         section_index = 1
+        #         # file_number = f"{title_count}.{i}"
 
-        #     section = {
-        #         "article": '',
-        #         "heading": h3.text.strip(),
-        #         "id": id,
-        #         "url": section_url,
-        #         # "file": file_number,
-        #         "html": "",
-        #         "text": ""
-        #     }
+        #         section = {
+        #             "article": '',
+        #             "heading": h3.text.strip(),
+        #             "id": id,
+        #             "url": section_url,
+        #             # "file": file_number,
+        #             "html": "",
+        #             "text": ""
+        #         }
 
-        #     paragraphs_html = []
-        #     paragraphs_text = []
-        #     sibling = h3.find_element(By.XPATH, "following-sibling::*[1]")
+        #         paragraphs_html = []
+        #         paragraphs_text = []
+        #         sibling = h3.find_element(By.XPATH, "following-sibling::*[1]")
 
-        #     while sibling.tag_name not in ['h2', 'h3']:
-        #         try:
-        #             tag = sibling.tag_name.lower()
-        #             cls = sibling.get_attribute("class")
+        #         while sibling.tag_name not in ['h2', 'h3']:
+        #             try:
+        #                 tag = sibling.tag_name.lower()
+        #                 cls = sibling.get_attribute("class")
 
-        #             if tag == 'p':
-        #                 paragraphs_text.append(sibling.text.strip())
-        #                 paragraphs_html.append(sibling.get_attribute('outerHTML'))
+        #                 if tag == 'p':
+        #                     paragraphs_text.append(sibling.text.strip())
+        #                     paragraphs_html.append(sibling.get_attribute('outerHTML'))
 
-        #             elif tag == 'div' and 'table_wrap' in cls:
-        #                 # paragraphs_text.append(sibling.text.strip())
-        #                 # paragraphs_html.append(sibling.get_attribute('outerHTML'))
-        #                 table_element = sibling.find_element(By.TAG_NAME, 'table')  # <== This gives you the <table> Selenium WebElement
-        #                 table_text = table_element.text
-        #                 table_html = table_element.get_attribute("outerHTML")
-        #                 print("table html",table_element.get_attribute("outerHTML"))
-        #                 # Optionally, use your table processing function here
-        #                 markdown_text = table_to_markdown_with_chunks(table_element)
-        #                 if markdown_text:
-        #                     paragraphs_text.append(markdown_text)
+        #                 elif tag == 'div' and 'table_wrap' in cls:
+        #                     # paragraphs_text.append(sibling.text.strip())
+        #                     # paragraphs_html.append(sibling.get_attribute('outerHTML'))
+        #                     table_element = sibling.find_element(By.TAG_NAME, 'table')  # <== This gives you the <table> Selenium WebElement
+        #                     table_text = table_element.text
+        #                     table_html = table_element.get_attribute("outerHTML")
+        #                     print("table html",table_element.get_attribute("outerHTML"))
+        #                     # Optionally, use your table processing function here
+        #                     markdown_text = table_to_markdown_with_chunks(table_element)
+        #                     if markdown_text:
+        #                         paragraphs_text.append(markdown_text)
 
-        #                 # Always append raw HTML as fallback
-        #                 paragraphs_html.append(sibling.get_attribute('outerHTML'))
+        #                     # Always append raw HTML as fallback
+        #                     paragraphs_html.append(sibling.get_attribute('outerHTML'))
 
-        #             # Move to the next sibling
-        #             sibling = sibling.find_element(By.XPATH, "following-sibling::*[1]")
+        #                 # Move to the next sibling
+        #                 sibling = sibling.find_element(By.XPATH, "following-sibling::*[1]")
 
-        #         except:
-        #             break
-        #     section["html"] = "\n".join(paragraphs_html)
-        #     section["text"] = "\n".join(paragraphs_text)
-        #     sections.append(section)
+        #             except:
+        #                 break
+        #         section["html"] = "\n".join(paragraphs_html)
+        #         section["text"] = "\n".join(paragraphs_text)
+        #         sections.append(section)
         
     
     return sections
@@ -474,8 +600,11 @@ for iter, chapter_link in enumerate(chapter_links, 1):
     chapter_sections = scrape_sections(driver, chapter_number, base_url)
     results[chapter_title] = chapter_sections
 
+
+print("results",results)
 # Transform and save results
 transform_structure_content = transform_structure(results)
+# transform_structure_content = convert_sets_to_lists(transform_structure_content)
 
 with open("chapters.json", "w", encoding="utf-8") as f:
     json.dump(transform_structure_content, f, ensure_ascii=False, indent=4)
