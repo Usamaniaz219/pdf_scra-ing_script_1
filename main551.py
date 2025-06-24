@@ -314,10 +314,19 @@ def scrape_sections(driver, chapter_number, base_url):
     # First check for articles (h3 with class 'article-title')
     # articles = driver.find_elements(By.XPATH, f"//h3[contains(@class, 'article-title') and contains(@id, '/us/ca/cities/san-mateo/code/{chapter_number}')]")
   
-    if chapter_number == "27.21":
+    article_path = "//h3[@class='h__article']"
+    h3_articles = driver.find_elements(By.XPATH, article_path)
+
+
+    article_path = f"//*[contains(@class, 'h__section') and contains(@id, '/us/ca/cities/san-mateo/code/{chapter_number}')]/preceding-sibling::h2[1]"
+    h2_articles = driver.find_elements(By.XPATH, article_path)
+
+
+
+    if h3_articles:
         # pass
-        article_path = "//h3[@class='h__article']"
-        h3_articles = driver.find_elements(By.XPATH, article_path)
+        # article_path = "//h3[@class='h__article']"
+        # h3_articles = driver.find_elements(By.XPATH, article_path)
 
         # All h4 section elements (subsections) for this chapter
         h4_sections = driver.find_elements(By.XPATH,f"//*[contains(@class, 'h__section') and contains(@id, '/us/ca/cities/san-mateo/code/{chapter_number}')]" )
@@ -412,10 +421,10 @@ def scrape_sections(driver, chapter_number, base_url):
 
 
 
-    if chapter_number in ['27.19' ,'27.28', '27.60', '27.62']:
+    if h2_articles>1:
         pass
-        # article_path = f"//*[contains(@class, 'h__section') and contains(@id, '/us/ca/cities/san-mateo/code/{chapter_number}')]/preceding-sibling::h2[1]"
-        # h3_articles = driver.find_elements(By.XPATH, article_path)
+        ## article_path = f"//*[contains(@class, 'h__section') and contains(@id, '/us/ca/cities/san-mateo/code/{chapter_number}')]/preceding-sibling::h2[1]"
+        ## h3_articles = driver.find_elements(By.XPATH, article_path)
 
         # # All h4 section elements (subsections) for this chapter
         # h4_sections = driver.find_elements(By.XPATH, f"//*[contains(@class, 'h__section') and contains(@id, '/us/ca/cities/san-mateo/code/{chapter_number}')]")
